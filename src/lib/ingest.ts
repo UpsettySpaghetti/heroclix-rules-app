@@ -14,10 +14,11 @@ export type IngestProgressEvent =
 export type OnIngestProgress = (event: IngestProgressEvent) => void;
 
 interface ExtractedText {
-  text: string;
-  // Per-page text, when the source format has a natural notion of pages
-  // (currently just PDF) - lets chunks carry a "page N" citation label.
-  pages?: { num: number; text: string }[];
+  // Each entry becomes its own group of chunks, all carrying that section's
+  // label as their citation label - "page N" for PDFs, the nearest
+  // Heading 2 for HTML sources (see groupByHeading below), or null when the
+  // source has no natural sectioning to hang a label on.
+  sections: { label: string | null; text: string }[];
 }
 
 async function extractFileText(
@@ -32,7 +33,7 @@ async function extractFileText(
     const parser = new PDFParse({ data: buffer });
     try {
       const result = await parser.getText();
-      return { text: result.text, pages: result.pages.map((p) => ({ num: p.num, text: p.text })) };
+      return { sections: result.pages.map((p) => ({ label: `page ${p.num}`, text: p.text })) };
     } finally {
       await parser.destroy();
     }
@@ -44,16 +45,89 @@ async function extractFileText(
   ) {
     const mammoth = await import("mammoth");
     const { value } = await mammoth.extractRawText({ buffer });
-    return { text: value };
+    return { sections: [{ label: null, text: value }] };
   }
 
   if (ext === "txt" || ext === "md" || mimeType.startsWith("text/")) {
-    return { text: buffer.toString("utf-8") };
+    return { sections: [{ label: null, text: buffer.toString("utf-8") }] };
   }
 
   throw new IngestError(
     `Unsupported file type "${ext ?? mimeType}". Upload a PDF, DOCX, TXT, or MD file.`
   );
+}
+
+// Groups Readability's cleaned article HTML by the nearest preceding <h2>,
+// so chunks from a section can cite that heading when there's no formal
+// rule number to cite instead (see lib/claude.ts's RULE_REFS extraction).
+// Block-level text (p/li/etc.) is collected under whatever heading most
+// recently preceded it; other elements (div, section, ul...) are just
+// walked into for their block children.
+function groupByHeading(contentHtml: string): { label: string | null; text: string }[] {
+  const { document } = parseHTML(contentHtml);
+  const sections: { label: string | null; text: string }[] = [];
+  let currentLabel: string | null = null;
+  let currentText: string[] = [];
+
+  const BLOCK_TAGS = new Set(["P", "LI", "BLOCKQUOTE", "PRE", "TD", "TH"]);
+
+  const flush = () => {
+    const text = currentText.join("\n\n").trim();
+    if (text) sections.push({ label: currentLabel, text });
+    currentText = [];
+  };
+
+  const walk = (node: Element) => {
+    const tag = node.tagName?.toUpperCase();
+    if (tag === "H2") {
+      flush();
+      currentLabel = node.textContent?.trim() || null;
+      return;
+    }
+    if (tag && BLOCK_TAGS.has(tag)) {
+      const text = node.textContent?.trim();
+      if (text) currentText.push(text);
+      return;
+    }
+    for (const child of Array.from(node.children)) {
+      walk(child as unknown as Element);
+    }
+  };
+
+  // linkedom doesn't auto-wrap a bare top-level element into <body> the way
+  // a browser parsing innerHTML would - a fragment like Readability's
+  // article.content (which starts with a <div>, not <html>/<body>) becomes
+  // the document root itself, leaving body empty. Walk whichever actually
+  // has content.
+  const root = document.body.children.length ? document.body : document.documentElement;
+  for (const child of Array.from(root.children)) {
+    walk(child as unknown as Element);
+  }
+  flush();
+
+  return sections;
+}
+
+// Readability gives back cleaned HTML (article.content) alongside the plain
+// text - grouping by heading needs the HTML. If heading-grouping ends up
+// capturing meaningfully less text than the plain version (some unexpected
+// markup shape), fall back to one flat section rather than silently
+// indexing less content than before.
+function extractedFromArticle(article: {
+  content?: string | null;
+  textContent?: string | null;
+}): ExtractedText {
+  const textContent = article.textContent ?? "";
+  const fallback: ExtractedText = { sections: [{ label: null, text: textContent }] };
+  if (!article.content) return fallback;
+
+  try {
+    const sections = groupByHeading(article.content);
+    const groupedLength = sections.reduce((sum, s) => sum + s.text.length, 0);
+    return groupedLength >= textContent.length * 0.8 ? { sections } : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 interface FetchedPage {
@@ -162,7 +236,7 @@ async function fetchPage(url: string): Promise<FetchedPage> {
   // rather than reusing linksDoc.
   const articleDoc = parseHTML(html, { url }).document;
   const article = new Readability(articleDoc as unknown as Document).parse();
-  const extracted = article?.textContent?.trim() ? { text: article.textContent } : null;
+  const extracted = article?.textContent?.trim() ? extractedFromArticle(article) : null;
 
   const title = googleDocsUrl ? await fetchGoogleDocTitle(url) : article?.title;
 
@@ -176,15 +250,9 @@ async function storeChunks(
 ) {
   const pieces: { content: string; label: string | null }[] = [];
 
-  if (extracted.pages?.length) {
-    for (const page of extracted.pages) {
-      for (const content of chunkText(page.text)) {
-        pieces.push({ content, label: `page ${page.num}` });
-      }
-    }
-  } else {
-    for (const content of chunkText(extracted.text)) {
-      pieces.push({ content, label: null });
+  for (const section of extracted.sections) {
+    for (const content of chunkText(section.text)) {
+      pieces.push({ content, label: section.label });
     }
   }
 

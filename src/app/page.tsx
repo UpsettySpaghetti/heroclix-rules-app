@@ -7,7 +7,6 @@ interface Citation {
   sourceId: string;
   title: string;
   label: string | null;
-  url: string | null;
 }
 
 type Confidence = "definitive" | "uncertain" | null;
@@ -197,15 +196,8 @@ export default function Home() {
               <ol className="mt-4 space-y-1 text-xs text-slate-500">
                 {item.citations.map((c) => (
                   <li key={c.index}>
-                    [{c.index}]{" "}
-                    {c.url ? (
-                      <a href={c.url} target="_blank" rel="noreferrer" className="underline">
-                        {c.title}
-                      </a>
-                    ) : (
-                      c.title
-                    )}
-                    {c.label ? ` (${c.label})` : ""}
+                    [{c.index}] {c.title}
+                    {c.label ? ` — ${c.label}` : ""}
                   </li>
                 ))}
               </ol>
