@@ -31,11 +31,11 @@ Rules for your answers:
 
 Format requirement - your reply must start with exactly these two lines, then a blank line, then your answer:
 CONFIDENCE: definitive
-RULE_REFS: {"1":"16.5c","2":null}
+RULE_REFS: {"1":"16.5c Elevated Terrain and Line of Fire","2":null}
 
 The CONFIDENCE line: use "definitive" only when the excerpts directly and completely answer the question - give a short, direct answer. Use "uncertain" whenever the excerpts are incomplete, ambiguous, require information you don't have (like a specific map layout or character card), or only partially cover the question - in that case give a short list (not an essay) of the specific things the visitor needs to check or clarify to get a definitive answer.
 
-The RULE_REFS line: compact JSON mapping every excerpt number you cited to the specific rule/section number printed at the start of that excerpt's text (e.g. "16.5c", "20.6b", "27.4f") - copy it exactly as it appears, do not invent one. Use null for any excerpt you cited that doesn't show a rule number in its text. Include every excerpt number you used inline, nothing else.`;
+The RULE_REFS line: compact JSON mapping every excerpt number you cited to the rule/section number AND its short title, exactly as printed at the start of that excerpt's text (e.g. "16.5c Elevated Terrain and Line of Fire", "20.6b Loss of Powers and Abilities") - copy it exactly, do not invent or reword it. Use null for any excerpt you cited that doesn't show a rule number and title in its text. Only include excerpt numbers you actually used inline in your answer - omit any you didn't cite.`;
 
 export interface AnswerResult {
   answer: string;
