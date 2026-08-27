@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest } from "@/lib/auth";
 import { IngestError, refreshLinkSource } from "@/lib/ingest";
 
+// See src/app/api/admin/sources/route.ts for why this needs to be this high.
+export const maxDuration = 300;
+
 // Streams the same chunked/embedding/done/error NDJSON events as adding a
 // source, so the admin page can reuse its existing progress UI.
 export async function POST(

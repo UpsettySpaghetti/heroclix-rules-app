@@ -4,6 +4,11 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { IngestError, ingestFile, ingestLink } from "@/lib/ingest";
 import { crawlSite } from "@/lib/crawl";
 
+// File uploads and crawls can legitimately run for minutes (many chunks to
+// embed, or many pages to crawl); Vercel's default function timeout is far
+// too short for that. 300s is the current cap on Vercel's free Hobby tier.
+export const maxDuration = 300;
+
 export async function GET(req: NextRequest) {
   if (!isAuthenticatedRequest(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
