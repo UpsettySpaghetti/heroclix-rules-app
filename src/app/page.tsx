@@ -37,6 +37,82 @@ function ConfidenceBadge({ confidence }: { confidence: Confidence }) {
   return null;
 }
 
+// Renders the lightweight markdown Claude's answers use (**bold** headers,
+// "- " / "1. " list items) as real elements instead of showing the raw
+// characters - deliberately narrow (just these two things) rather than a
+// full markdown parser/library, since that's all the prompt ever asks for.
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={i} className="font-semibold text-slate-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
+
+function renderAnswer(text: string): React.ReactNode[] {
+  const blocks: React.ReactNode[] = [];
+  let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let key = 0;
+
+  const flushList = () => {
+    if (!listItems.length || !listType) return;
+    const ListTag = listType;
+    blocks.push(
+      <ListTag
+        key={`list-${key++}`}
+        className={`mt-2 space-y-1 pl-5 first:mt-0 ${listType === "ul" ? "list-disc" : "list-decimal"}`}
+      >
+        {listItems.map((item, i) => (
+          <li key={i}>{renderInline(item)}</li>
+        ))}
+      </ListTag>
+    );
+    listItems = [];
+    listType = null;
+  };
+
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    const bulletMatch = line.match(/^[-•]\s+(.*)/);
+    const numberedMatch = line.match(/^\d+[.)]\s+(.*)/);
+
+    if (bulletMatch) {
+      if (listType !== "ul") flushList();
+      listType = "ul";
+      listItems.push(bulletMatch[1]);
+      continue;
+    }
+    if (numberedMatch) {
+      if (listType !== "ol") flushList();
+      listType = "ol";
+      listItems.push(numberedMatch[1]);
+      continue;
+    }
+
+    flushList();
+    if (line) {
+      blocks.push(
+        <p key={`p-${key++}`} className="mt-2 first:mt-0">
+          {renderInline(line)}
+        </p>
+      );
+    }
+  }
+  flushList();
+
+  return blocks;
+}
+
 export default function Home() {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -110,15 +186,13 @@ export default function Home() {
         )}
         {history.map((item, i) => (
           <article key={i} className="border-t border-slate-200 pt-6 first:border-t-0 first:pt-0">
-            <p className="text-sm font-medium text-slate-900">{item.question}</p>
-            <div className="mt-2 flex items-start gap-2">
-              {item.confidence && (
-                <span className="mt-0.5 shrink-0">
-                  <ConfidenceBadge confidence={item.confidence} />
-                </span>
-              )}
-              <p className="whitespace-pre-wrap text-sm text-slate-700">{item.answer}</p>
-            </div>
+            <p className="text-sm font-bold text-slate-900">{item.question}</p>
+            {item.confidence && (
+              <div className="mt-1.5">
+                <ConfidenceBadge confidence={item.confidence} />
+              </div>
+            )}
+            <div className="mt-2 text-sm text-slate-700">{renderAnswer(item.answer)}</div>
             {item.citations.length > 0 && (
               <ol className="mt-4 space-y-1 text-xs text-slate-500">
                 {item.citations.map((c) => (

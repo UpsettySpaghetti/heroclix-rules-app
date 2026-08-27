@@ -21,13 +21,6 @@ interface MatchRow {
   storage_path: string | null;
 }
 
-// PDF chunks are labeled "page N" (see src/lib/ingest.ts) - browsers' native
-// PDF viewers jump straight to that page given a #page=N fragment.
-function pageAnchor(label: string | null): string {
-  const match = label?.match(/^page (\d+)$/i);
-  return match ? `#page=${match[1]}` : "";
-}
-
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const question = body?.question;
@@ -75,16 +68,19 @@ export async function POST(req: NextRequest) {
 
     // One entry per excerpt, in the same order given to Claude, so a citation's
     // list position matches the [n] marker Claude used inline in the answer.
-    const citations = rows.map((r, i) => {
-      const baseUrl = r.origin_url ?? (r.storage_path ? signedUrls.get(r.storage_path) : null);
-      return {
-        index: i + 1,
-        sourceId: r.source_id,
-        title: r.source_title,
-        label: r.label,
-        url: baseUrl ? `${baseUrl}${pageAnchor(r.label)}` : null,
-      };
-    });
+    //
+    // No #page=N fragment on the file URLs: large PDFs load slowly enough
+    // that browsers' built-in viewers often parse the fragment before the
+    // document is ready and silently fall back to page 1 anyway - the page
+    // number is already shown as text, so visitors can jump there themselves
+    // rather than the link making a promise it can't reliably keep.
+    const citations = rows.map((r, i) => ({
+      index: i + 1,
+      sourceId: r.source_id,
+      title: r.source_title,
+      label: r.label,
+      url: r.origin_url ?? (r.storage_path ? signedUrls.get(r.storage_path) : null) ?? null,
+    }));
 
     return NextResponse.json({ answer, confidence, citations });
   } catch (err) {
