@@ -7,13 +7,34 @@ interface Citation {
   sourceId: string;
   title: string;
   label: string | null;
-  originUrl: string | null;
+  url: string | null;
 }
+
+type Confidence = "definitive" | "uncertain" | null;
 
 interface Answer {
   question: string;
   answer: string;
+  confidence: Confidence;
   citations: Citation[];
+}
+
+function ConfidenceBadge({ confidence }: { confidence: Confidence }) {
+  if (confidence === "definitive") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+        Answer
+      </span>
+    );
+  }
+  if (confidence === "uncertain") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+        Not certain - check these
+      </span>
+    );
+  }
+  return null;
 }
 
 export default function Home() {
@@ -41,7 +62,10 @@ export default function Home() {
         setError(body.error ?? "Something went wrong.");
         return;
       }
-      setHistory((prev) => [{ question: q, answer: body.answer, citations: body.citations }, ...prev]);
+      setHistory((prev) => [
+        { question: q, answer: body.answer, confidence: body.confidence, citations: body.citations },
+        ...prev,
+      ]);
       setQuestion("");
     } catch {
       setError("Something went wrong reaching the server.");
@@ -87,14 +111,21 @@ export default function Home() {
         {history.map((item, i) => (
           <article key={i} className="border-t border-slate-200 pt-6 first:border-t-0 first:pt-0">
             <p className="text-sm font-medium text-slate-900">{item.question}</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{item.answer}</p>
+            <div className="mt-2 flex items-start gap-2">
+              {item.confidence && (
+                <span className="mt-0.5 shrink-0">
+                  <ConfidenceBadge confidence={item.confidence} />
+                </span>
+              )}
+              <p className="whitespace-pre-wrap text-sm text-slate-700">{item.answer}</p>
+            </div>
             {item.citations.length > 0 && (
               <ol className="mt-4 space-y-1 text-xs text-slate-500">
                 {item.citations.map((c) => (
                   <li key={c.index}>
                     [{c.index}]{" "}
-                    {c.originUrl ? (
-                      <a href={c.originUrl} target="_blank" rel="noreferrer" className="underline">
+                    {c.url ? (
+                      <a href={c.url} target="_blank" rel="noreferrer" className="underline">
                         {c.title}
                       </a>
                     ) : (

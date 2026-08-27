@@ -36,6 +36,11 @@ create index if not exists chunks_source_id_idx on chunks (source_id);
 
 -- Used by src/app/api/ask/route.ts to find the most relevant excerpts for a
 -- visitor's question via cosine similarity.
+-- `create or replace` can't change a function's return columns, only its
+-- body - so this drops it first, making it safe to re-run after the
+-- returned columns change (as opposed to just its logic).
+drop function if exists match_chunks(vector, int);
+
 create or replace function match_chunks(query_embedding vector(1024), match_count int)
 returns table (
   id uuid,
@@ -44,7 +49,9 @@ returns table (
   label text,
   similarity float,
   source_title text,
-  origin_url text
+  origin_url text,
+  source_kind text,
+  storage_path text
 )
 language sql stable
 as $$
@@ -55,7 +62,9 @@ as $$
     chunks.label,
     1 - (chunks.embedding <=> query_embedding) as similarity,
     sources.title as source_title,
-    sources.origin_url as origin_url
+    sources.origin_url as origin_url,
+    sources.kind as source_kind,
+    sources.storage_path as storage_path
   from chunks
   join sources on sources.id = chunks.source_id
   order by chunks.embedding <=> query_embedding

@@ -26,13 +26,21 @@ const SYSTEM_PROMPT = `You are a rules assistant for the tabletop miniatures gam
 
 Rules for your answers:
 - Base your answer strictly on the provided excerpts. Never rely on outside knowledge of Heroclix, and never guess at a rule that isn't in the excerpts.
-- If the excerpts don't fully answer the question, say plainly what is and isn't covered rather than filling the gap yourself.
-- Be precise and detailed - Heroclix rulings often hinge on exact wording, timing, keywords, and modifiers, so quote or closely paraphrase the relevant text.
-- Reference excerpts inline using their [number] marker (e.g. "a character with Flight can move over blocking terrain [2]") so the visitor can see exactly which source backs each claim.`;
+- Keep it short: give the conclusion and the one or two sentences of key reasoning behind it. Do not quote or reproduce long blocks of rules text - the visitor can open the cited source themselves (a link is shown for every citation) to read the exact wording. A few words of paraphrase per point is enough.
+- Reference excerpts inline using their [number] marker (e.g. "a character with Flight can move over blocking terrain [2]") so the visitor knows which source backs each claim and can click through for the full text.
+
+Format requirement - your reply must start with exactly one of these two lines, then a blank line, then your answer:
+CONFIDENCE: definitive
+CONFIDENCE: uncertain
+
+Use "definitive" only when the excerpts directly and completely answer the question - give a short, direct answer. Use "uncertain" whenever the excerpts are incomplete, ambiguous, require information you don't have (like a specific map layout or character card), or only partially cover the question - in that case give a short list (not an essay) of the specific things the visitor needs to check or clarify to get a definitive answer.`;
 
 export interface AnswerResult {
   answer: string;
+  confidence: "definitive" | "uncertain" | null;
 }
+
+const CONFIDENCE_LINE_PATTERN = /^CONFIDENCE:\s*(definitive|uncertain)\s*\n+/i;
 
 export async function answerQuestion(
   question: string,
@@ -51,14 +59,21 @@ export async function answerQuestion(
 
   const response = await getClient().messages.create({
     model: ANSWER_MODEL,
-    // Detailed rules answers - especially ones quoting several excerpts and
-    // citing many sources - can easily run long. 1500 was cutting real
-    // answers off mid-sentence.
-    max_tokens: 4096,
+    // Answers are meant to be short summaries now (see SYSTEM_PROMPT), but
+    // this stays a generous ceiling rather than a target - just a backstop
+    // against a runaway response, not something answers are expected to
+    // approach.
+    max_tokens: 1024,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
 
   const textBlock = response.content.find((block) => block.type === "text");
-  return { answer: textBlock && textBlock.type === "text" ? textBlock.text : "" };
+  const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
+
+  const match = raw.match(CONFIDENCE_LINE_PATTERN);
+  const confidence = match ? (match[1].toLowerCase() as "definitive" | "uncertain") : null;
+  const answer = match ? raw.slice(match[0].length) : raw;
+
+  return { answer, confidence };
 }
