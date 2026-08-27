@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { JSDOM } from "jsdom";
+import { parseHTML } from "linkedom";
 import { Readability } from "@mozilla/readability";
 import { getSupabaseAdmin, SOURCES_BUCKET } from "./supabase";
 import { embedDocuments } from "./embeddings";
@@ -145,13 +145,23 @@ async function fetchPage(url: string): Promise<FetchedPage> {
     );
   }
 
-  const linksDom = new JSDOM(html, { url });
-  const links = Array.from(linksDom.window.document.querySelectorAll("a[href]"))
-    .map((a) => (a as HTMLAnchorElement).href)
-    .filter(Boolean);
+  // linkedom doesn't auto-resolve relative hrefs the way jsdom's `url`
+  // option did, so each one is resolved against the page URL by hand.
+  const linksDoc = parseHTML(html, { url }).document;
+  const links = Array.from(linksDoc.querySelectorAll("a[href]"))
+    .map((a) => {
+      try {
+        return new URL(a.getAttribute("href") ?? "", url).toString();
+      } catch {
+        return null;
+      }
+    })
+    .filter((href): href is string => href !== null);
 
-  const articleDom = new JSDOM(html, { url });
-  const article = new Readability(articleDom.window.document).parse();
+  // Readability mutates the document it's given, so it needs its own parse
+  // rather than reusing linksDoc.
+  const articleDoc = parseHTML(html, { url }).document;
+  const article = new Readability(articleDoc as unknown as Document).parse();
   const extracted = article?.textContent?.trim() ? { text: article.textContent } : null;
 
   const title = googleDocsUrl ? await fetchGoogleDocTitle(url) : article?.title;
