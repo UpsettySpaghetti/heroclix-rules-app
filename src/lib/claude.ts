@@ -51,7 +51,10 @@ export async function answerQuestion(
 
   const response = await getClient().messages.create({
     model: ANSWER_MODEL,
-    max_tokens: 1500,
+    // Detailed rules answers - especially ones quoting several excerpts and
+    // citing many sources - can easily run long. 1500 was cutting real
+    // answers off mid-sentence.
+    max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
