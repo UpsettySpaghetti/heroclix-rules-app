@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=22.12.0"
   },
+  "overrides": {
+    "html-encoding-sniffer": "4.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
