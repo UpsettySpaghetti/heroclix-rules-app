@@ -3,7 +3,14 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { embedQuery } from "@/lib/embeddings";
 import { answerQuestion, RetrievedChunk } from "@/lib/claude";
 
-const MATCH_COUNT = 8;
+// A real query ("explain the mastermind ability") missed its answer at 8:
+// the correct excerpt ranked #10 by similarity - in a rulebook where many
+// chunks are structurally similar (short, similarly-worded power/ability
+// definitions), the right one doesn't always land in the top handful.
+// Wider net, cheap trade: a few extra ~500-token excerpts per question is
+// a small cost for meaningfully lowering the odds of missing the answer
+// that's genuinely indexed.
+const MATCH_COUNT = 14;
 
 interface MatchRow {
   id: string;
