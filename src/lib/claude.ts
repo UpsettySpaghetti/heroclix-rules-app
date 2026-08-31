@@ -43,7 +43,43 @@ export interface AnswerResult {
   ruleRefs: Record<string, string>;
 }
 
-const HEADER_PATTERN = /^CONFIDENCE:\s*(definitive|uncertain)\s*\nRULE_REFS:\s*(\{[^\n]*\})\s*\n+/i;
+const CONFIDENCE_PATTERN = /^CONFIDENCE:\s*(definitive|uncertain)\s*\n+/i;
+const RULE_REFS_PATTERN = /RULE_REFS:\s*(\{[^\n]*\})\s*\n*/i;
+
+// Pulls the two header lines out wherever they actually landed, rather than
+// requiring both in the exact "CONFIDENCE then RULE_REFS then blank line"
+// order the prompt asks for - without extended thinking (see below), the
+// model doesn't always follow that structure exactly (RULE_REFS has shown
+// up trailing at the end of the answer, or been omitted entirely), and a
+// strict combined match would silently treat the whole raw response -
+// including literal header lines - as the answer instead of degrading
+// gracefully.
+function parseAnswer(raw: string): AnswerResult {
+  let text = raw;
+  let confidence: "definitive" | "uncertain" | null = null;
+  let ruleRefs: Record<string, string> = {};
+
+  const confidenceMatch = text.match(CONFIDENCE_PATTERN);
+  if (confidenceMatch) {
+    confidence = confidenceMatch[1].toLowerCase() as "definitive" | "uncertain";
+    text = text.slice(confidenceMatch[0].length);
+  }
+
+  const rulesMatch = text.match(RULE_REFS_PATTERN);
+  if (rulesMatch) {
+    try {
+      const parsed = JSON.parse(rulesMatch[1]) as Record<string, string | null>;
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === "string" && value.trim()) ruleRefs[key] = value.trim();
+      }
+    } catch {
+      ruleRefs = {};
+    }
+    text = (text.slice(0, rulesMatch.index) + text.slice(rulesMatch.index! + rulesMatch[0].length)).trim();
+  }
+
+  return { answer: text.trim(), confidence, ruleRefs };
+}
 
 export async function answerQuestion(
   question: string,
@@ -67,6 +103,16 @@ export async function answerQuestion(
     // against a runaway response, not something answers are expected to
     // approach.
     max_tokens: 1024,
+    // This model uses "adaptive" thinking by default - Claude decides on
+    // its own whether/how much to reason internally, and that reasoning
+    // draws from the same max_tokens budget as the visible answer. That's
+    // what caused a real reported bug: on one question thinking alone used
+    // 586 of the 1024 tokens, leaving too little room and truncating the
+    // answer mid-sentence. Disabled outright: this app only needs Claude to
+    // synthesize a short answer from given excerpts, not do deep multi-step
+    // reasoning, so a predictable token budget is worth more here than
+    // whatever thinking might add.
+    thinking: { type: "disabled" },
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
@@ -74,21 +120,5 @@ export async function answerQuestion(
   const textBlock = response.content.find((block) => block.type === "text");
   const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
-  const match = raw.match(HEADER_PATTERN);
-  const confidence = match ? (match[1].toLowerCase() as "definitive" | "uncertain") : null;
-  const answer = match ? raw.slice(match[0].length) : raw;
-
-  let ruleRefs: Record<string, string> = {};
-  if (match) {
-    try {
-      const parsed = JSON.parse(match[2]) as Record<string, string | null>;
-      for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === "string" && value.trim()) ruleRefs[key] = value.trim();
-      }
-    } catch {
-      ruleRefs = {};
-    }
-  }
-
-  return { answer, confidence, ruleRefs };
+  return parseAnswer(raw);
 }
