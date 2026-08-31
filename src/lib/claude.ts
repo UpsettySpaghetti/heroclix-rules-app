@@ -98,21 +98,24 @@ export async function answerQuestion(
 
   const response = await getClient().messages.create({
     model: ANSWER_MODEL,
-    // Answers are meant to be short summaries now (see SYSTEM_PROMPT), but
-    // this stays a generous ceiling rather than a target - just a backstop
-    // against a runaway response, not something answers are expected to
-    // approach.
-    max_tokens: 1024,
-    // This model uses "adaptive" thinking by default - Claude decides on
-    // its own whether/how much to reason internally, and that reasoning
-    // draws from the same max_tokens budget as the visible answer. That's
-    // what caused a real reported bug: on one question thinking alone used
-    // 586 of the 1024 tokens, leaving too little room and truncating the
-    // answer mid-sentence. Disabled outright: this app only needs Claude to
-    // synthesize a short answer from given excerpts, not do deep multi-step
-    // reasoning, so a predictable token budget is worth more here than
-    // whatever thinking might add.
-    thinking: { type: "disabled" },
+    // This model only supports thinking.type "adaptive" or "disabled" - the
+    // classic fixed thinking.budget_tokens mode (which would have let
+    // thinking be hard-capped separately from the answer) returns a 400 for
+    // this model ("use thinking.type.adaptive and output_config.effort
+    // instead"). So thinking and the visible answer still share this one
+    // pool, same as before - the two knobs available here are biasing
+    // *how much* adaptive thinking tends to use (output_config.effort,
+    // below) and making the shared pool generous enough that even a
+    // heavier-than-usual thinking pass doesn't crowd out the answer.
+    max_tokens: 3072,
+    // Disabling thinking entirely (previous fix for a truncation bug) traded
+    // away real accuracy on genuinely multi-step questions (chaining Giant
+    // Reach + a targeting restriction together) - thinking was doing
+    // legitimate work there. "low" effort keeps some of that benefit while
+    // biasing toward using fewer tokens on it than the unconstrained default
+    // did (586 tokens on the question that originally triggered this).
+    thinking: { type: "adaptive" },
+    output_config: { effort: "low" },
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
